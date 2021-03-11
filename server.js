@@ -22,9 +22,26 @@ fs.exists(path.join(process.cwd() + "/serverConfig.json"), function (exists) {
     }
 });
 
+const serverDomains = './Entities/Domains/';
+if (!fs.existsSync(serverDomains)) {
+    fs.mkdirSync(serverDomains);
+}
+var DomainsJson = [];
+fs.exists(path.join(process.cwd() + "/Entities/Domains/Domains.json"), function (exists) {
+    if (!exists) {
+        fs.writeFile('Entities/Domains/Domains.json', JSON.stringify(DomainsJson, null, 2), function (err) {
+            if (err) return console.log(err);
+        });
+    } else {
+        var rawdata = fs.readFileSync('Entities/Domains/Domains.json');
+        DomainsJson = JSON.parse(rawdata);
+    }
+});
+
 function runServer() {
     port = process.argv[2] || serverPort;
     var fs = require('fs');
+    var domainsJsonChanged = false;
     const serverFolder = './Entities/Domain/';
     if (!fs.existsSync(serverFolder)) {
         fs.mkdirSync(serverFolder);
@@ -33,17 +50,36 @@ function runServer() {
         var uri = url.parse(request.url).pathname;
         if (uri == "/" || uri == "/domains.json") {
             pageData = [];
+            var rawdata = fs.readFileSync('Entities/Domains/Domains.json');
+            DomainsJson = JSON.parse(rawdata);
             fs.readdir(serverFolder, (err, files) => {
                 if (files.length === 0) {
                     sendPage(JSON.stringify(pageData));
                 } else {
-                    // JSON.stringify(new Date)
                     files.forEach(file => {
                         var rawServerInformationdata = fs.readFileSync("Entities/Domain/" + file);
                         serverInformation = JSON.parse(rawServerInformationdata);
                         var currentDay = new Date();
                         var oldDay = new Date(serverInformation.TimeOfLastHeartbeat);
+                        var DomainName = serverInformation.PlaceName;
                         if (currentDay.getTime() - oldDay.getTime() <= 30000) {
+                            var domainExists = false;
+                            for (let i = 0; i < DomainsJson.length; i++) {
+                                if (serverInformation.DomainID == DomainsJson[i].DomainID) {
+                                    domainExists = true;
+                                    if (DomainsJson[i].DomainName != "") {
+                                        DomainName = DomainsJson[i].DomainName;
+                                    }
+                                }
+                            }
+                            if (!domainExists) {
+                                domainsJsonChanged = true;
+                                var domainJson = {
+                                    "DomainID": serverInformation.DomainID,
+                                    "DomainName": ""
+                                };
+                                DomainsJson.push(domainJson);
+                            }
                             var serverOwner;
                             if (serverInformation.SponserAccountID != null) {
                                 var rawServerOwnerInformationdata = fs.readFileSync("Entities/Account/" + serverInformation.SponserAccountID + ".json");
@@ -54,7 +90,7 @@ function runServer() {
                             }
                             if (serverInformation.Restriction == "open") {
                                 var domain = {
-                                    "Domain Name": serverInformation.PlaceName,
+                                    "Domain Name": DomainName,
                                     "Owner": serverOwner,
                                     "Visit": "hifi://" + serverInformation.DomainID,
                                     "People": serverInformation.TotalUsers
@@ -63,6 +99,12 @@ function runServer() {
                             }
                         }
                     });
+                    if (domainsJsonChanged) {
+                        fs.writeFile('Entities/Domains/Domains.json', JSON.stringify(DomainsJson, null, 2), function (err) {
+                            if (err) return console.log(err);
+                        });
+                        domainsJsonChanged = false;
+                    }
                     sendPage(JSON.stringify(pageData));
                 }
             });
